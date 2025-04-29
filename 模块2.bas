@@ -47,8 +47,9 @@ Sub GenerateAdvancedPhaseDiagram()
     Dim T_min As Double: T_min = 1
     Dim T_max As Double: T_max = critTemp * 1.3
     ReDim T(1 To n), P_sl(1 To n), P_lg(1 To n), P_sg(1 To n)
-    Dim min_T As Double: min_T = tripleT - 25
+    Dim min_T As Double
     
+    If (tripleT = 273.15) Then min_T = tripleT - 25 Else: min_T = tripleT
     
     Dim stepT As Double
     stepT = (T_max - T_min) / (n - 1)
@@ -88,12 +89,22 @@ Sub GenerateAdvancedPhaseDiagram()
             P_sl(i) = 0
         End If
         
-        ' 液-气线 (克劳修斯-克拉伯龙方程)
-        If T(i) > tripleT And T(i) < critTemp Then
-            P_lg(i) = tripleP * Exp(-deltaHvap / R * (1 / T(i) - 1 / tripleT)) * CalC(tripleT, critTemp, tripleP, critPress, T(i), rt_const)
-        Else
-            P_lg(i) = 0
-        End If
+       ' 液-气线 (克劳修斯-克拉伯龙方程 + 自适应修正)
+' 液-气线计算（克劳修斯-克拉伯龙 + 分段修正）
+If T(i) > tripleT And T(i) < critTemp Then
+    ' 基础克劳修斯-克拉伯龙计算
+    Dim baseP As Double
+    baseP = tripleP * Exp(-deltaHvap / R * (1 / T(i) - 1 / tripleT))
+    
+    ' 获取临界点处的基础计算压力
+    Dim baseP_crit As Double
+    baseP_crit = tripleP * Exp(-deltaHvapP / R * (1 / critTemp - 1 / tripleT))
+    
+    ' 计算修正后的压力（强制限制在[tripleP, critPress]区间）
+    P_lg(i) = CalC(tripleT, tripleP, critTemp, critPress, baseP_crit, T(i), baseP)
+Else
+    P_lg(i) = 0
+End If
         
         ' 固-气线 (升华线)
         If T(i) <= tripleT Then
@@ -119,7 +130,7 @@ Sub GenerateAdvancedPhaseDiagram()
     With cht
         .SetSourceData Source:=wsChart.Range("A1:D" & n + 1)
         .HasTitle = True
-        .ChartTitle.Text = wsMain.Range("C3").Value & " Phase Diagram"
+        .ChartTitle.Text = wsMain.Range("C3").Value & " 相图（修正测试）"
         .Parent.Width = 500 * 2
         .Parent.Height = 300 * 2
         .Parent.Left = 0
@@ -223,43 +234,37 @@ Function CalculatePressure(T As Double, T1 As Double, P1 As Double, _
     CalculatePressure = P1 + (term1 + term2 + term3 + term4) / deltaVfus
 End Function
 
-Function CalC(T0 As Double, Tm As Double, P0 As Double, Pm As Double, Tn As Double, Ps As Double) As Double
+Function CalC(T0 As Double, P0 As Double, Tm As Double, Pm As Double, baseP_crit As Double, Tn As Double, baseP As Double) As Double
     ' 参数说明：
-    ' T0 : 三相点温度
-    ' Tm : 超临界点温度
-    ' P0 : 三相点压力（参考基准）
-    ' Pm : 超临界点实际压力
-    ' Tn : 当前计算点温度
-    ' Ps : 超临界点计算压力
+    ' T0/P0: 三相点温度/压力
+    ' Tm/Pm: 临界点温度/压力
+    ' baseP_crit: 基础公式在临界温度计算的压力
+    ' Tn/baseP: 当前温度及其对应的基础压力
     
-    ' 异常处理
-    If Tm <= T0 Then
-        CalC = 1
+    If Tm <= T0 Or baseP_crit <= 0 Then
+        CalC = P0
         Exit Function
     End If
     
-    If Ps = 0 Then
-        PCalC = 1
-        Exit Function
-    End If
-    
-    ' 标准化温度进度（0到1区间）
+    ' 计算标准化进度（0到1区间）
     Dim progress As Double
     progress = (Tn - T0) / (Tm - T0)
     progress = Application.Max(0, Application.Min(1, progress))
     
-    ' 计算终点修正比
-    Dim critical_ratio As Double
-    critical_ratio = Pm / Ps
+    ' 计算临界修正比例
+    Dim crit_ratio As Double
+    crit_ratio = Pm / baseP_crit
     
-    ' 三次Hermite插值公式
-    ' 保证在起点和终点的导数为零（更平滑过渡）
+    ' 使用三次Hermite插值平滑过渡（起始和终点导数为0）
     Dim smooth_progress As Double
     smooth_progress = 3 * progress ^ 2 - 2 * progress ^ 3
     
-    ' 应用非线性修正
-    CalC = 1 + smooth_progress * (critical_ratio - 1)
+    ' 计算修正后的压力
+    Dim correctedP As Double
+    correctedP = baseP * (1 + (crit_ratio - 1) * smooth_progress)
     
-    ' 可选：添加对数修正项（增强低温区稳定性）
-    ' PhaseCorrection = PhaseCorrection * (1 + 0.1 * Log(1 + progress))
+    ' 强制限制在[P0, Pm]区间
+    correctedP = Application.Max(P0, Application.Min(Pm, correctedP))
+    
+    CalC = correctedP
 End Function

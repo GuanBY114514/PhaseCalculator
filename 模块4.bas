@@ -47,7 +47,9 @@ Sub GenerateAdvancedPhaseDiagramW()
     Dim T_min As Double: T_min = 1
     Dim T_max As Double: T_max = critTemp * 1.3
     ReDim T(1 To n), P_sl(1 To n), P_lg(1 To n), P_sg(1 To n)
-    Dim min_T As Double: min_T = tripleT - 25
+    Dim min_T As Double
+    
+    If (tripleT = 273.15) Then min_T = tripleT - 25 Else: min_T = tripleT
     
     
     Dim stepT As Double
@@ -119,7 +121,7 @@ Sub GenerateAdvancedPhaseDiagramW()
     With cht
         .SetSourceData Source:=wsChart.Range("A1:D" & n + 1)
         .HasTitle = True
-        .ChartTitle.Text = wsMain.Range("C3").Value & " Phase Diagram"
+        .ChartTitle.Text = wsMain.Range("C3").Value & " 相图（理论计算）"
         .Parent.Width = 500 * 2
         .Parent.Height = 300 * 2
         .Parent.Left = 0
